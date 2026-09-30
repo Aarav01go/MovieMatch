@@ -63,7 +63,36 @@ def get_or_create_user(user: User):
 
 @app.get("/movies/search")
 def search_movies(q: str):
+    global movies_df
     results = movies_df[movies_df['title'].str.contains(q, case=False, na=False)].head(12)
+    if results.empty:
+        try:
+            model = genai.GenerativeModel('gemini-flash-latest')
+            prompt = f"Provide details for a real movie matching '{q}'. Format exactly as: Title|Genre1,Genre2. If it is not a real movie, return exactly 'NOT_FOUND'."
+            response = model.generate_content(prompt).text.strip()
+            if "NOT_FOUND" not in response and "|" in response:
+                title, genres = response.split("|", 1)
+                title, genres = title.strip(), genres.strip()
+                
+                # Check if this exact title actually exists to avoid duplicates
+                exact_match = movies_df[movies_df['title'].str.lower() == title.lower()]
+                if not exact_match.empty:
+                    return exact_match.to_dict(orient="records")
+                    
+                # Create a new fake ID
+                new_id = movies_df['movieId'].max() + 1 if not movies_df.empty else 1
+                new_row = {"movieId": int(new_id), "title": title, "genres": genres}
+                
+                # Append to memory dataframe
+                movies_df = pd.concat([movies_df, pd.DataFrame([new_row])], ignore_index=True)
+                
+                # Persist to CSV so ratings join works across restarts
+                movies_df.to_csv("backend/data/movies.csv", index=False)
+                
+                return [new_row]
+        except Exception:
+            pass
+            
     return results.to_dict(orient="records")
 
 @app.get("/movies/trending")
