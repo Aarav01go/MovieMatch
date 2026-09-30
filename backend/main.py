@@ -1,22 +1,17 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 import pandas as pd
 import pickle
-import sqlite3
 import os
 import google.generativeai as genai
-from typing import List, Optional
+from typing import List
+from sqlalchemy.orm import Session
+from backend.database import get_db, User, Movie, Rating
 
 app = FastAPI(title="MovieMatch API")
 
 # Setup GenAI
 genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-
-# Load Data
-try:
-    movies_df = pd.read_csv("backend/data/movies.csv")
-except:
-    movies_df = pd.DataFrame(columns=['movieId', 'title', 'genres'])
 
 # Load Models
 models = {}
@@ -27,17 +22,10 @@ for algo in ['svd', 'knn', 'baseline']:
     except:
         models[algo] = None
 
-# DB Connection
-DB_PATH = "backend/data/moviematch.db"
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-class User(BaseModel):
+class UserSchema(BaseModel):
     username: str
 
-class Rating(BaseModel):
+class RatingSchema(BaseModel):
     user_id: int
     movie_id: int
     rating: float
@@ -47,25 +35,20 @@ class MoodRequest(BaseModel):
     mood: str
 
 @app.post("/users")
-def get_or_create_user(user: User):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM users WHERE username = ?", (user.username,))
-    row = cursor.fetchone()
-    if row:
-        user_id = row['user_id']
-    else:
-        cursor.execute("INSERT INTO users (username) VALUES (?)", (user.username,))
-        conn.commit()
-        user_id = cursor.lastrowid
-    conn.close()
-    return {"user_id": user_id, "username": user.username}
+def get_or_create_user(user: UserSchema, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.username == user.username).first()
+    if not db_user:
+        db_user = User(username=user.username)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    return {"user_id": db_user.user_id, "username": db_user.username}
 
 @app.get("/movies/search")
-def search_movies(q: str):
-    global movies_df
-    results = movies_df[movies_df['title'].str.contains(q, case=False, na=False)].head(12)
-    if results.empty:
+def search_movies(q: str, db: Session = Depends(get_db)):
+    # Search database
+    results = db.query(Movie).filter(Movie.title.ilike(f"%{q}%")).limit(12).all()
+    if not results:
         try:
             model = genai.GenerativeModel('gemini-flash-latest')
             prompt = f"Provide details for a real movie matching '{q}'. Format exactly as: Title|Genre1,Genre2. If it is not a real movie, return exactly 'NOT_FOUND'."
@@ -74,46 +57,49 @@ def search_movies(q: str):
                 title, genres = response.split("|", 1)
                 title, genres = title.strip(), genres.strip()
                 
-                # Check if this exact title actually exists to avoid duplicates
-                exact_match = movies_df[movies_df['title'].str.lower() == title.lower()]
-                if not exact_match.empty:
-                    return exact_match.to_dict(orient="records")
+                # Check exact match
+                exact = db.query(Movie).filter(Movie.title.ilike(title)).first()
+                if exact:
+                    return [{"movieId": exact.movie_id, "title": exact.title, "genres": exact.genres}]
                     
-                # Create a new fake ID
-                new_id = movies_df['movieId'].max() + 1 if not movies_df.empty else 1
-                new_row = {"movieId": int(new_id), "title": title, "genres": genres}
+                # Get max movie ID (or fake high one) and insert
+                max_id = db.query(Movie).order_by(Movie.movie_id.desc()).first()
+                new_id = (max_id.movie_id + 1) if max_id else 1
                 
-                # Append to memory dataframe
-                movies_df = pd.concat([movies_df, pd.DataFrame([new_row])], ignore_index=True)
+                new_movie = Movie(movie_id=new_id, title=title, genres=genres)
+                db.add(new_movie)
+                db.commit()
+                db.refresh(new_movie)
                 
-                # Persist to CSV so ratings join works across restarts
-                movies_df.to_csv("backend/data/movies.csv", index=False)
-                
-                return [new_row]
+                return [{"movieId": new_movie.movie_id, "title": new_movie.title, "genres": new_movie.genres}]
         except Exception:
             pass
             
-    return results.to_dict(orient="records")
+    return [{"movieId": m.movie_id, "title": m.title, "genres": m.genres} for m in results]
 
 @app.get("/movies/trending")
-def trending_movies():
-    results = movies_df.sample(6, random_state=42)
-    return results.to_dict(orient="records")
+def trending_movies(db: Session = Depends(get_db)):
+    # Quick pseudo-random sample in SQL
+    from sqlalchemy.sql.expression import func
+    results = db.query(Movie).order_by(func.random()).limit(6).all()
+    return [{"movieId": m.movie_id, "title": m.title, "genres": m.genres} for m in results]
 
 @app.get("/recommendations/{user_id}")
-def get_recommendations(user_id: int, algo: str = "svd"):
+def get_recommendations(user_id: int, algo: str = "svd", db: Session = Depends(get_db)):
     if algo not in models or models[algo] is None:
         raise HTTPException(status_code=400, detail="Model not found or not trained")
     
     model = models[algo]
-    sample = movies_df.sample(200, random_state=42)
+    from sqlalchemy.sql.expression import func
+    sample_movies = db.query(Movie).order_by(func.random()).limit(200).all()
+    
     predictions = []
-    for _, row in sample.iterrows():
-        pred = model.predict(uid=user_id, iid=row['movieId'])
+    for m in sample_movies:
+        pred = model.predict(uid=user_id, iid=m.movie_id)
         predictions.append({
-            "movieId": row['movieId'],
-            "title": row['title'],
-            "genres": row['genres'],
+            "movieId": m.movie_id,
+            "title": m.title,
+            "genres": m.genres,
             "rating": pred.est
         })
     
@@ -121,28 +107,16 @@ def get_recommendations(user_id: int, algo: str = "svd"):
     return predictions[:12]
 
 @app.post("/ratings")
-def add_rating(rating: Rating):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO ratings (user_id, movie_id, rating) VALUES (?, ?, ?)", 
-                  (rating.user_id, rating.movie_id, rating.rating))
-    conn.commit()
-    conn.close()
+def add_rating(rating: RatingSchema, db: Session = Depends(get_db)):
+    new_rating = Rating(user_id=rating.user_id, movie_id=rating.movie_id, rating=rating.rating)
+    db.add(new_rating)
+    db.commit()
     return {"status": "success"}
 
 @app.get("/ratings/{user_id}")
-def get_ratings(user_id: int):
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT movie_id, rating, timestamp FROM ratings WHERE user_id = ?", (user_id,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    if not rows: return []
-    
-    ratings_df = pd.DataFrame([dict(r) for r in rows])
-    merged = pd.merge(ratings_df, movies_df, left_on='movie_id', right_on='movieId', how='left')
-    return merged.to_dict(orient="records")
+def get_ratings(user_id: int, db: Session = Depends(get_db)):
+    ratings = db.query(Rating, Movie).join(Movie, Rating.movie_id == Movie.movie_id).filter(Rating.user_id == user_id).all()
+    return [{"movieId": m.movie_id, "title": m.title, "genres": m.genres, "rating": r.rating, "timestamp": r.timestamp} for r, m in ratings]
 
 @app.get("/ai/synopsis")
 def get_synopsis(title: str):
