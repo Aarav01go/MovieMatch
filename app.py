@@ -124,15 +124,14 @@ def load_data():
     return pd.read_csv('movies.csv')
 
 @st.cache_resource
-def load_model():
+def load_model(model_name="svd"):
     try:
-        with open('svd_model.pkl', 'rb') as f:
+        with open(f'{model_name}_model.pkl', 'rb') as f:
             return pickle.load(f)
     except FileNotFoundError:
         return None
 
 movies_df = load_data()
-model = load_model()
 
 # --- Database Helpers ---
 DB_PATH = 'moviematch.db'
@@ -244,63 +243,78 @@ elif page == "Recommendations":
     st.title("✨ For You")
     if not st.session_state.username:
         st.warning("Please login from the sidebar first.")
-    elif not model:
-        st.error("Recommendation model not trained. Please run train_model.py first.")
     else:
         st.write("Top picks tailored just for you.")
         
-        sample_movies = movies_df.sample(200, random_state=42)
-        predictions = []
-        for _, row in sample_movies.iterrows():
-            pred = model.predict(uid=st.session_state.user_id, iid=row['movieId'])
-            predictions.append((row['title'], row['genres'], pred.est))
+        algo_choice = st.selectbox(
+            "Select Recommendation Algorithm:",
+            ("SVD (Advanced Latent Factors)", "KNN (Collaborative Filtering)", "Baseline (Statistical Average)")
+        )
+        
+        model_name_map = {
+            "SVD (Advanced Latent Factors)": "svd",
+            "KNN (Collaborative Filtering)": "knn",
+            "Baseline (Statistical Average)": "baseline"
+        }
+        
+        selected_algo = model_name_map[algo_choice]
+        model = load_model(selected_algo)
+        
+        if not model:
+            st.error(f"{algo_choice} model not trained. Please run train_model.py first.")
+        else:
+            sample_movies = movies_df.sample(200, random_state=42)
+            predictions = []
+            for _, row in sample_movies.iterrows():
+                pred = model.predict(uid=st.session_state.user_id, iid=row['movieId'])
+                predictions.append((row['title'], row['genres'], pred.est))
+                
+            predictions.sort(key=lambda x: x[2], reverse=True)
+            top_12 = predictions[:12]
             
-        predictions.sort(key=lambda x: x[2], reverse=True)
-        top_12 = predictions[:12]
-        
-        cols = st.columns(4)
-        for idx, movie in enumerate(top_12):
-            title, genres, rating = movie
-            col = cols[idx % 4]
-            with col:
-                render_movie_card(title, genres, rating)
-                with st.expander("AI Details"):
-                    ai_key = f"rec_ai_{idx}"
-                    if ai_key not in st.session_state:
-                        if not GENAI_API_KEY:
-                            st.error("Gemini API key missing.")
-                        else:
-                            try:
-                                gemini_model = genai.GenerativeModel('gemini-flash-latest')
-                                prompt = f"Provide a very short 2-sentence synopsis for the movie '{title}'."
-                                st.session_state[ai_key] = gemini_model.generate_content(prompt).text
-                            except Exception as e:
-                                st.session_state[ai_key] = "AI synopsis unavailable (Rate limit or error)."
-                    
-                    st.info(st.session_state.get(ai_key, ""))
-        
-        st.write("---")
-        st.subheader("🧠 Ask Gemini")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Explain these recommendations"):
-                if not GENAI_API_KEY: st.error("Gemini API key missing.")
-                else:
-                    with st.spinner("Gemini is analyzing..."):
-                        gemini_model = genai.GenerativeModel('gemini-flash-latest')
-                        titles = ", ".join([t[0] for t in top_12])
-                        prompt = f"I am a user of a movie recommendation system. The system recommended these movies: {titles}. Explain in one engaging paragraph why these might be grouped together."
-                        st.info(gemini_model.generate_content(prompt).text)
+            cols = st.columns(4)
+            for idx, movie in enumerate(top_12):
+                title, genres, rating = movie
+                col = cols[idx % 4]
+                with col:
+                    render_movie_card(title, genres, rating)
+                    with st.expander("AI Details"):
+                        ai_key = f"rec_ai_{idx}"
+                        if ai_key not in st.session_state:
+                            if not GENAI_API_KEY:
+                                st.error("Gemini API key missing.")
+                            else:
+                                try:
+                                    gemini_model = genai.GenerativeModel('gemini-flash-latest')
+                                    prompt = f"Provide a very short 2-sentence synopsis for the movie '{title}'."
+                                    st.session_state[ai_key] = gemini_model.generate_content(prompt).text
+                                except Exception as e:
+                                    st.session_state[ai_key] = "AI synopsis unavailable (Rate limit or error)."
                         
-        with col2:
-            mood = st.text_input("What's your mood?", placeholder="e.g., I want to laugh")
-            if st.button("Re-rank by Mood"):
-                if not GENAI_API_KEY: st.error("Gemini API key missing.")
-                elif not mood: st.error("Please enter a mood.")
-                else:
-                    with st.spinner("Gemini is re-ranking..."):
-                        gemini_model = genai.GenerativeModel('gemini-flash-latest')
-                        titles = [t[0] for t in top_12]
-                        prompt = f"Given these 12 movies: {titles}. User's mood: '{mood}'. Re-order to best match the mood. Return a numbered list."
-                        st.success(gemini_model.generate_content(prompt).text)
+                        st.info(st.session_state.get(ai_key, ""))
+            
+            st.write("---")
+            st.subheader("🧠 Ask Gemini")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Explain these recommendations"):
+                    if not GENAI_API_KEY: st.error("Gemini API key missing.")
+                    else:
+                        with st.spinner("Gemini is analyzing..."):
+                            gemini_model = genai.GenerativeModel('gemini-flash-latest')
+                            titles = ", ".join([t[0] for t in top_12])
+                            prompt = f"I am a user of a movie recommendation system. The system recommended these movies: {titles}. Explain in one engaging paragraph why these might be grouped together."
+                            st.info(gemini_model.generate_content(prompt).text)
+                            
+            with col2:
+                mood = st.text_input("What's your mood?", placeholder="e.g., I want to laugh")
+                if st.button("Re-rank by Mood"):
+                    if not GENAI_API_KEY: st.error("Gemini API key missing.")
+                    elif not mood: st.error("Please enter a mood.")
+                    else:
+                        with st.spinner("Gemini is re-ranking..."):
+                            gemini_model = genai.GenerativeModel('gemini-flash-latest')
+                            titles = [t[0] for t in top_12]
+                            prompt = f"Given these 12 movies: {titles}. User's mood: '{mood}'. Re-order to best match the mood. Return a numbered list."
+                            st.success(gemini_model.generate_content(prompt).text)
