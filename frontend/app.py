@@ -62,20 +62,21 @@ selected = option_menu(
 if 'username' not in st.session_state:
     st.session_state.username = None
 
-col1, col2 = st.columns([1, 4])
-with col1:
+# --- User Profile Sidebar ---
+with st.sidebar:
+    st.markdown("### 👤 User Profile")
     if not st.session_state.username:
-        with st.form("login_form"):
-            user_input = st.text_input("Enter Username")
-            if st.form_submit_button("Login"):
+        user_input = st.text_input("", placeholder="Enter Username...", label_visibility="collapsed")
+        if st.button("Login", use_container_width=True):
+            if user_input:
                 res = requests.post(f"{API_URL}/users", json={"username": user_input})
                 if res.status_code == 200:
                     st.session_state.user_id = res.json()["user_id"]
                     st.session_state.username = user_input
                     st.rerun()
     else:
-        st.success(f"User: {st.session_state.username}")
-        if st.button("Logout"):
+        st.success(f"Welcome, {st.session_state.username}!")
+        if st.button("Logout", use_container_width=True):
             st.session_state.username = None
             st.session_state.user_id = None
             st.rerun()
@@ -104,7 +105,7 @@ if selected == "Home":
         st.error("Backend offline. Start FastAPI server.")
 
 elif selected == "Discover":
-    if not st.session_state.username: st.warning("Login first.")
+    if not st.session_state.username: st.warning("👈 Please open the sidebar to login and unlock your personalized experience.")
     else:
         q = st.text_input("Search titles...")
         if q:
@@ -130,7 +131,7 @@ elif selected == "Discover":
                                 st.success("Saved!")
 
 elif selected == "My List":
-    if not st.session_state.username: st.warning("Login first.")
+    if not st.session_state.username: st.warning("👈 Please open the sidebar to login and unlock your personalized experience.")
     else:
         ratings = requests.get(f"{API_URL}/ratings/{st.session_state.user_id}").json()
         if ratings:
@@ -139,7 +140,7 @@ elif selected == "My List":
             st.info("No ratings yet.")
 
 elif selected == "Top Picks":
-    if not st.session_state.username: st.warning("Login first.")
+    if not st.session_state.username: st.warning("👈 Please open the sidebar to login and unlock your personalized experience.")
     else:
         algo = st.selectbox("Engine", ["svd", "knn", "baseline"])
         try:
