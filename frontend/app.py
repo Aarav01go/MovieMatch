@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 import requests
 import urllib.parse
+import pandas as pd
 
 st.set_page_config(page_title="MovieMatch", layout="wide", initial_sidebar_state="collapsed")
 

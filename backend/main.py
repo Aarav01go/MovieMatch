@@ -1,6 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
-import pandas as pd
 import pickle
 import os
 import google.generativeai as genai
