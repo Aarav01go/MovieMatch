@@ -41,3 +41,12 @@ def get_db():
         yield db
     finally:
         db.close()
+
+class Watchlist(Base):
+    __tablename__ = "watchlist"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False)
+    movie_id = Column(Integer, nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+Base.metadata.create_all(bind=engine)

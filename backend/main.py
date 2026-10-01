@@ -1,16 +1,30 @@
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
 import pickle
-import os
-import google.generativeai as genai
 from typing import List
 from sqlalchemy.orm import Session
 from backend.database import get_db, User, Movie, Rating
 
-app = FastAPI(title="MovieMatch API")
 
-# Setup GenAI
-genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
+import requests
+
+import os
+OPENROUTER_KEY = os.environ.get("OPENROUTER_KEY")
+
+def call_openrouter(prompt: str) -> str:
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "google/gemini-2.5-flash",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 500
+    }
+    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+    response.raise_for_status()
+    return response.json()['choices'][0]['message']['content']
+
+app = FastAPI(title="MovieMatch API")
 
 # Load Models
 models = {}
@@ -21,13 +35,15 @@ for algo in ['svd', 'knn', 'baseline']:
     except:
         models[algo] = None
 
+from pydantic import BaseModel, Field
+
 class UserSchema(BaseModel):
     username: str
 
 class RatingSchema(BaseModel):
     user_id: int
     movie_id: int
-    rating: float
+    rating: float = Field(..., ge=1.0, le=5.0)
 
 class MoodRequest(BaseModel):
     movies: List[str]
@@ -49,11 +65,12 @@ def search_movies(q: str, db: Session = Depends(get_db)):
     results = db.query(Movie).filter(Movie.title.ilike(f"%{q}%")).limit(12).all()
     if not results:
         try:
-            model = genai.GenerativeModel('gemini-flash-latest')
             prompt = f"Provide details for a real movie matching '{q}'. Format exactly as: Title|Genre1,Genre2. If it is not a real movie, return exactly 'NOT_FOUND'."
-            response = model.generate_content(prompt).text.strip()
-            if "NOT_FOUND" not in response and "|" in response:
-                title, genres = response.split("|", 1)
+
+            response_text = call_openrouter(prompt).strip()
+            if "NOT_FOUND" not in response_text and "|" in response_text:
+                title, genres = response_text.split("|", 1)
+
                 title, genres = title.strip(), genres.strip()
                 
                 # Check exact match
@@ -120,19 +137,56 @@ def get_ratings(user_id: int, db: Session = Depends(get_db)):
 @app.get("/ai/synopsis")
 def get_synopsis(title: str):
     try:
-        model = genai.GenerativeModel('gemini-flash-latest')
-        res = model.generate_content(f"Write a 2-sentence captivating synopsis for '{title}'.")
-        return {"synopsis": res.text}
+        response_text = call_openrouter(f"Write a 2-sentence captivating synopsis for '{title}'.")
+        return {"synopsis": response_text}
     except Exception as e:
         return {"synopsis": "Synopsis unavailable."}
 
 @app.post("/ai/rerank")
 def rerank_by_mood(req: MoodRequest):
     try:
-        model = genai.GenerativeModel('gemini-flash-latest')
         titles = ", ".join(req.movies)
         prompt = f"Movies: {titles}. User's mood: '{req.mood}'. Re-order to best match. Return a numbered list."
-        res = model.generate_content(prompt)
-        return {"result": res.text}
+        response_text = call_openrouter(prompt)
+        return {"result": response_text}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/movies/similar/{movie_id}")
+def similar_movies(movie_id: int, db: Session = Depends(get_db)):
+    movie = db.query(Movie).filter(Movie.movie_id == movie_id).first()
+    if not movie:
+        raise HTTPException(status_code=404, detail="Movie not found")
+    
+    genres = movie.genres.split('|') if movie.genres else []
+    similar = []
+    from sqlalchemy.sql.expression import func
+    if genres:
+        from sqlalchemy import or_
+        genre_filter = or_(*[Movie.genres.ilike(f"%{g.strip()}%") for g in genres])
+        similar = db.query(Movie).filter(genre_filter, Movie.movie_id != movie_id).order_by(func.random()).limit(6).all()
+    else:
+        similar = db.query(Movie).filter(Movie.movie_id != movie_id).order_by(func.random()).limit(6).all()
+        
+    return [{"movieId": m.movie_id, "title": m.title, "genres": m.genres} for m in similar]
+
+class WatchlistSchema(BaseModel):
+    user_id: int
+    movie_id: int
+
+@app.post("/watchlist")
+def add_to_watchlist(item: WatchlistSchema, db: Session = Depends(get_db)):
+    from backend.database import Watchlist
+    # check if already exists
+    existing = db.query(Watchlist).filter(Watchlist.user_id == item.user_id, Watchlist.movie_id == item.movie_id).first()
+    if not existing:
+        new_item = Watchlist(user_id=item.user_id, movie_id=item.movie_id)
+        db.add(new_item)
+        db.commit()
+    return {"status": "success"}
+
+@app.get("/watchlist/{user_id}")
+def get_watchlist(user_id: int, db: Session = Depends(get_db)):
+    from backend.database import Watchlist, Movie
+    items = db.query(Watchlist, Movie).join(Movie, Watchlist.movie_id == Movie.movie_id).filter(Watchlist.user_id == user_id).all()
+    return [{"movieId": m.movie_id, "title": m.title, "genres": m.genres, "timestamp": w.timestamp} for w, m in items]

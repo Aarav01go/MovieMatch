@@ -34,7 +34,6 @@ The project has been refactored into a decoupled Full-Stack architecture:
 
 * **`/backend`**: A blazingly fast **FastAPI** server running on port `8000`. It handles all heavy lifting, loads the `.pkl` machine learning models, interacts with SQLite, and securely communicates with the Gemini API.
 * **`/frontend`**: A **Streamlit** application running on port `8501`. It acts strictly as a UI layer, communicating with the backend via REST HTTP requests.
-* **`/Code`**: The original academic Jupyter Notebooks containing the mathematical research and model evaluation.
 
 ## 🚀 How to Run Locally
 
