@@ -2,21 +2,19 @@ services:
   - type: web
     name: moviematch-backend
     runtime: python
-    region: singapore   # closest to India
+    region: singapore
     plan: free
     rootDir: .
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHONPATH
+        value: backend:.
       - key: APP_ENV
         value: production
       - key: DATABASE_URL
         value: sqlite:///backend/data/moviematch.db
       - key: OPENROUTER_KEY
-        sync: false   # Set this manually in Render dashboard
+        sync: false
       - key: OMDB_API_KEY
         value: thewdb
-    disk:
-      name: moviematch-data
-      mountPath: /opt/render/project/src/backend/data
-      sizeGB: 1
