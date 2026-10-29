@@ -1,3 +1,10 @@
+import sys
+import os
+
+# Add backend/ to Python path so all bare imports (database, models, etc.) resolve correctly
+# This is needed when uvicorn is invoked from the repo root as: uvicorn backend.main:app
+sys.path.insert(0, os.path.dirname(__file__))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
