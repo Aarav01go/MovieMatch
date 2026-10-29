@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from backend.database import get_db
-from backend.models.watchlist import Watchlist
-from backend.models.movie import Movie
-from backend.schemas.movie import WatchlistSchema
+from database import get_db
+from models.watchlist import Watchlist
+from models.movie import Movie
+from schemas.movie import WatchlistSchema
 
 router = APIRouter(prefix="/watchlist", tags=["Watchlist"])
 

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from backend.database import get_db
-from backend.services.movie_service import (
+from database import get_db
+from services.movie_service import (
     get_trending,
     search_movies,
     get_by_id,

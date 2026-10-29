@@ -1,8 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from sqlalchemy.sql.expression import func
-from backend.models.movie import Movie
-from backend.services.ai_service import call_openrouter
+from models.movie import Movie
+from services.ai_service import call_openrouter
 
 
 def get_trending(db: Session, limit: int = 12):

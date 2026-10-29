@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from backend.database import get_db
-from backend.models.rating import Rating
-from backend.models.movie import Movie
-from backend.schemas.movie import RatingSchema
+from database import get_db
+from models.rating import Rating
+from models.movie import Movie
+from schemas.movie import RatingSchema
 
 router = APIRouter(prefix="/ratings", tags=["Ratings"])
 

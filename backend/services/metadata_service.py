@@ -1,6 +1,6 @@
 import requests
 from urllib.parse import quote
-from backend.config import settings
+from config import settings
 
 
 def fetch_omdb_metadata(title: str):

@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException
-from backend.schemas.recommendation import MoodRequest
-from backend.schemas.ai import AIAssistantRequest
+from schemas.recommendation import MoodRequest
+from schemas.ai import AIAssistantRequest
 from fastapi import Depends
 from sqlalchemy.orm import Session
-from backend.database import get_db
-from backend.services.ai_service import get_ai_recommendation
-from backend.services.ai_service import generate_synopsis, rerank_movies_by_mood
+from database import get_db
+from services.ai_service import get_ai_recommendation
+from services.ai_service import generate_synopsis, rerank_movies_by_mood
 
 router = APIRouter(prefix="/ai", tags=["AI Features"])
 
