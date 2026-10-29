@@ -1,8 +1,26 @@
+# Secrets
 .env
-backend/models/*.pkl
+
+# ML Models — KNN is 725MB, too large for GitHub
+backend/models/knn_model.pkl
+backend/models_ml/knn_model.pkl
+
+# Pycache
 __pycache__/
 *.pyc
+*.pyo
+
+# Data archives
 backend/data/*.gz
+
+# Static posters (111MB — served via OMDB fallback in prod)
 static/posters/
+
+# Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Reports (submission docs — not needed in repo)
+report/MovieMatch_Output_File.docx
+report/MovieMatch_Output_File.pdf
+report/final.pdf

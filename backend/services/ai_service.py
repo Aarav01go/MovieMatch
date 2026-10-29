@@ -1,6 +1,6 @@
 import re
 import requests
-from backend.config import settings
+from config import settings
 
 
 def call_openrouter(prompt: str) -> str:
@@ -40,7 +40,7 @@ def rerank_movies_by_mood(movies: list, mood: str) -> str:
 
 
 from sqlalchemy.orm import Session
-from backend.models.movie import Movie
+from models.movie import Movie
 
 
 def get_ai_recommendation(query: str, db: Session):
